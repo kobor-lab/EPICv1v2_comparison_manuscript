@@ -1,0 +1,161 @@
+---
+title: ""
+date: "Sept, 2024"
+author: "Beryl Zhuang"
+output:
+  rmdformats::robobook:
+    highlight: kate
+    number_sections: true
+
+---
+<style type="text/css">
+
+.book .book-body .page-inner {
+  max-width: 1500px;
+}
+
+#sidebar {
+  background: mistyrose4;
+}
+
+#postamble {
+  background:#6959cc;
+  border-top:solid 10px grey100;
+}
+
+.title {
+  text-align: center;
+  color: #6959cc;
+}
+
+.subtitle {
+  color: grey100;
+}
+
+h2, legend {
+  color: snow;
+}
+
+h1, h3, h4, h5, h6 {
+  color: #6959cc;
+}
+
+
+#content h2 {
+    background-color: #6959cc;
+}
+
+</style>
+
+```{r setup, echo=FALSE, cache=FALSE, results='hide'}
+library(knitr)
+library(rmdformats)
+
+## Global options
+opts_chunk$set(echo=F,
+               collapse=T,
+	             cache=FALSE,
+               prompt=FALSE,
+               tidy=FALSE,
+               message=FALSE,
+               warning=FALSE,
+               cache.lazy = FALSE)
+
+```
+
+
+# Introduction  
+This documentation contains the core analysis script for the manuscript:   
+"Discrepancies in readouts between Infinium MethylationEPIC v2.0 and v1.0 reflected in DNA methylation-based tools: implications and considerations for human population epigenetic studies"
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(dplyr)
+```
+
+
+
+
+# array-level Spearman correlation
+calculate array level spearman correlation among the common probes between EPICv1 and v2
+
+
+```{r}
+betas <- cbind(EPICv1_beta_matrix, EPICv2_beta_matrix)
+cor_samples <- cor(betas, use = 'pairwise.complete.obs',method = "spearman" )
+```
+
+
+# probe-level Spearman correlations, RMSE, and pooled SD
+
+```{r}
+# modifying the rmse function to remove NAs
+rmse2 <- function(x, y, na.rm = TRUE){
+    res <- sqrt(mean((x-y)^2, na.rm = na.rm))
+    return(res)
+}
+
+# EPICv1 v2 beta matrix must have the same row order of common CpGs
+spearman_cor <- sapply(j, function(i) cor(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,], method = "spearman"))
+probe_rmse <- sapply(j, function(i) rmse2(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,]))
+pooled_SD <- sapply(j, function(i) effectsize::sd_pooled(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,]))
+```
+
+# technical replicate ICC calculation (array-level)
+
+1. within EPICv1 tech rep
+2. between version tech reps (by mean)
+
+```{r}
+library(psych)
+
+```
+
+I'm calculating ICCs for technical replicates within each EPIC version (EPICv1 tech rep ICC)
+technical replicates within EPIC version are the raters (column), and each probe is an item (row)
+
+
+We use ICC2 as the results
+
+```{r}
+
+techRepICCacross <- function(beta_matrix_v1,beta_matrix_v2, tech_rep,cohort_i){
+    input_data <- data.frame(v1= beta_matrix_v1[, tech_rep] %>% rowMeans(),v2= beta_matrix_v2[,tech_rep]%>% rowMeans())
+    x <- psych::ICC(input_data)
+    tmp <- cbind(data.frame(Cohort = cohort_i), as.data.frame(x$results), Type = "across EPIC versions",
+                 Version = "EPICv1 and EPICv2",Technical_replicate=paste0(tech_rep, collapse = ", "))
+    return(tmp)
+}
+
+
+# use one of the two pairs of technical replicate from VHAS as example
+tech_rep <- c("12294-V", "12294-V_rep")
+
+## within EPICv1 technical replicate ICCs
+input_data_EPICv1 <- data.frame(v= EPICv1_beta_matrix[, tech_rep[1]],v_rep= EPICv1_beta_matrix[,tech_rep[2]])
+within_EPICv1_tech_rep_ICC <- psych::ICC(input_data_EPICv1) #use ICC2
+
+## within EPICv2 technical replicate ICCs
+input_data_EPICv2 <- data.frame(v= EPICv2_beta_matrix[, tech_rep[1]],v_rep= EPICv2_beta_matrix[,tech_rep[2]])
+within_EPICv2_tech_rep_ICC <- psych::ICC(input_data_EPICv2) #use ICC2
+
+## between EPICv1 and EPICv2 technical replicate ICCs
+input_data <- data.frame(v1= EPICv1_beta_matrix[, tech_rep] %>% rowMeans(),v2= EPICv2_beta_matrix[,tech_rep]%>% rowMeans())
+between_version_tech_rep_ICC <- psych::ICC(input_data) #use ICC2
+```
+
+
+# hierachical clustering and plots
+
+```{r}
+
+```
+
+
+# Epigenetic age acceleration (EAA) calcualtion
+
+# predictor
+
+# paired t tests
+
+
+
