@@ -1,6 +1,6 @@
 ---
-title: ""
-date: "Sept, 2024"
+title: "Analysis scripts"
+date: "Sept-Oct, 2024"
 author: "Beryl Zhuang"
 output:
   rmdformats::robobook:
@@ -52,7 +52,7 @@ library(knitr)
 library(rmdformats)
 
 ## Global options
-opts_chunk$set(echo=F,
+opts_chunk$set(echo=T,
                collapse=T,
 	             cache=FALSE,
                prompt=FALSE,
@@ -68,19 +68,37 @@ opts_chunk$set(echo=F,
 This documentation contains the core analysis script for the manuscript:   
 "Discrepancies in readouts between Infinium MethylationEPIC v2.0 and v1.0 reflected in DNA methylation-based tools: implications and considerations for human population epigenetic studies"
 
+Preprint is available at 
+https://www.biorxiv.org/content/10.1101/2024.07.02.600461v2
+
+
+
+```{r}
+# save(EPICv1_beta_matrix,EPICv2_beta_matrix,EPICv1_clocks, EPICv2_clocks,SampleInfo, sample_correlation, file = "example_data.Rdata")
+
+load( "example_data.Rdata")
+head(EPICv1_beta_matrix)
+head(EPICv2_beta_matrix) # with replicate probes collapsed, and probe names are ILLUMINA NAME, same as in EPICv1
+
+head(EPICv1_clocks)
+head(EPICv2_clocks)
+head(SampleInfo)
+sample_correlation[1:5, 1:5]
+```
+
+
 ```{r, message=FALSE, warning=FALSE, echo=F}
 library(dplyr)
 ```
 
 
-
-
 # array-level Spearman correlation
+
 calculate array level spearman correlation among the common probes between EPICv1 and v2
-
-
 ```{r}
+identical(rownames(EPICv1_beta_matrix), rownames(EPICv2_beta_matrix)) # must be T
 betas <- cbind(EPICv1_beta_matrix, EPICv2_beta_matrix)
+colnames(betas) <- c(paste0(colnames(EPICv1_beta_matrix), "_EPICv1"),paste0(colnames(EPICv2_beta_matrix), "_EPICv2")) 
 cor_samples <- cor(betas, use = 'pairwise.complete.obs',method = "spearman" )
 ```
 
@@ -94,41 +112,29 @@ rmse2 <- function(x, y, na.rm = TRUE){
     return(res)
 }
 
+j=1:nrow(EPICv1_beta_matrix)
 # EPICv1 v2 beta matrix must have the same row order of common CpGs
-spearman_cor <- sapply(j, function(i) cor(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,], method = "spearman"))
+probe_spearman_cor <- sapply(j, function(i) cor(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,], method = "spearman"))
 probe_rmse <- sapply(j, function(i) rmse2(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,]))
-pooled_SD <- sapply(j, function(i) effectsize::sd_pooled(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,]))
+probe_pooled_SD <- sapply(j, function(i) effectsize::sd_pooled(EPICv1_beta_matrix[i,], EPICv2_beta_matrix[i,]))
 ```
 
 # technical replicate ICC calculation (array-level)
 
+I'm calculating ICCs for technical replicates within each EPIC version (EPICv1 tech rep ICC)
+technical replicates within EPIC version are the raters (column), and each probe is an item (row)  
 1. within EPICv1 tech rep
 2. between version tech reps (by mean)
-
-```{r}
-library(psych)
-
-```
-
-I'm calculating ICCs for technical replicates within each EPIC version (EPICv1 tech rep ICC)
-technical replicates within EPIC version are the raters (column), and each probe is an item (row)
 
 
 We use ICC2 as the results
 
 ```{r}
-
-techRepICCacross <- function(beta_matrix_v1,beta_matrix_v2, tech_rep,cohort_i){
-    input_data <- data.frame(v1= beta_matrix_v1[, tech_rep] %>% rowMeans(),v2= beta_matrix_v2[,tech_rep]%>% rowMeans())
-    x <- psych::ICC(input_data)
-    tmp <- cbind(data.frame(Cohort = cohort_i), as.data.frame(x$results), Type = "across EPIC versions",
-                 Version = "EPICv1 and EPICv2",Technical_replicate=paste0(tech_rep, collapse = ", "))
-    return(tmp)
-}
+library(psych)
 
 
-# use one of the two pairs of technical replicate from VHAS as example
-tech_rep <- c("12294-V", "12294-V_rep")
+# use one of the two pairs of technical replicate
+tech_rep <- c("Sample_1", "Sample_1_rep")
 
 ## within EPICv1 technical replicate ICCs
 input_data_EPICv1 <- data.frame(v= EPICv1_beta_matrix[, tech_rep[1]],v_rep= EPICv1_beta_matrix[,tech_rep[2]])
@@ -147,15 +153,119 @@ between_version_tech_rep_ICC <- psych::ICC(input_data) #use ICC2
 # hierachical clustering and plots
 
 ```{r}
+library(pheatmap)
+library(RColorBrewer)
 
+color_pDat <- SampleInfo %>% select(Version, Sex)
+rownames(SampleInfo) <- SampleInfo$Sample_Name
+rownames(color_pDat) <- SampleInfo$Sample_Name
+str(color_pDat)
+# Specify colors
+ann_colors = list(Sex =c(F="#C0C0C0", M ="#696969"),
+    Version = c(EPICv1 = "#56BEAC", EPICv2 = "#5E405E"))
+
+
+pheatmap(sample_correlation , cluster_rows=T, cluster_cols=T,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean", clustering_method = "complete",
+         annotation_col = color_pDat,
+         annotation_colors = ann_colors,
+         show_rownames = F, show_colnames = F,border_color = NA,
+         main = '')
 ```
 
 
 # Epigenetic age acceleration (EAA) calcualtion
 
-# predictor
 
-# paired t tests
+## 1.	EPIC version separate
+we separated epigenetic ages of EPICv1 and EPICv2 samples and then calculated EAA independently on EPICv1 and EPICv2 samples by extracting residuals from the linear regression model: Epigenetic age ~ chronological age.
 
 
+```{r}
+# for each version separate
+model_EEAA_EPICv1 = lm(Horvath_pantissue~ Age, data = EPICv1_clocks)
+acc_residual_EEAA_EPICv1 <- model_EEAA_EPICv1$residuals
+
+
+model_EEAA_EPICv2 = lm(Horvath_pantissue~ Age, data = EPICv2_clocks)
+acc_residual_EEAA_EPICv2 <- model_EEAA_EPICv2$residuals
+```
+
+## 2.	EPIC versions combined
+we first combined epigenetic ages of EPICv1 and EPICv2 samples and then calculated EAA by extracting residuals from the linear regression model: Epigenetic age ~ chronological age.
+
+
+```{r}
+model_EEAA_combined = lm(Horvath_pantissue~ Age, data = rbind(EPICv1_clocks, EPICv2_clocks))
+acc_residual_EEAA_combined <- model_EEAA_combined$residuals
+acc_residual_EEAA_combined
+```
+
+## 3.	EPIC versions combined and version adjusted: 
+we first combined epigenetic ages of EPICv1 and EPICv2 samples and calculated EAA by extracting residuals from the linear regression model: Epigenetic age ~ chronological age + EPIC version. 
+
+```{r}
+model_EEAA_combined_adjusted = lm(Horvath_pantissue~ Age + Version, data = rbind(EPICv1_clocks, EPICv2_clocks))
+acc_residual_EEAA_combined_adjusted <- model_EEAA_combined_adjusted$residuals
+acc_residual_EEAA_combined_adjusted
+```
+
+
+# EPIC version adjusted DunedinPACE, DNAmTL, epiTOC, and DNA methylation-based inflammation, smoking, and alcohol scores
+
+
+## 1.	EPIC version separate: 
+DunedinPACe, DNAmTL, epiTOC, and predictor estimates were calculated for EPICv1 and EPICv2 samples without EPIC version adjustment. These are the calculation from each clock/predictor. No additional calculation needed.
+```{r}
+input_estimates <- rbind(EPICv1_clocks, EPICv2_clocks) # combine EPICv1 and v2
+non_adj_DunedinPACE <- input_estimates$DunedinPACE
+
+non_adj_DunedinPACE
+```
+
+## 2.	EPIC versions combined and version adjusted: 
+DunedinPACe, DNAmTL, epiTOC, and predictor estimates were first calculated for EPICv1 and EPICv2 samples, and were subsequently adjusted for EPIC versions by regressing out EPIC versions using linear regression model: Rate estimate ~ EPIC version.
+
+```{r}
+# DunedinPACE as example
+input_estimates <- rbind(EPICv1_clocks, EPICv2_clocks) # combine EPICv1 and v2
+
+model_predictor = lm(DunedinPACE ~ Version, data = input_estimates) # adjust Version
+adj_DunedinPACE <- residuals(model_predictor)+mean(input_estimates$DunedinPACE)
+adj_DunedinPACE
+
+EPICv1_clocks$adj_DunedinPACE <- adj_DunedinPACE[1:24]
+EPICv2_clocks$adj_DunedinPACE <- adj_DunedinPACE[25:48]
+
+```
+
+
+
+# Paired t tests and calculate effect size
+
+Using paired t-tests and applying a Bonferroni multiple test correction, we evaluated differences in epigenetic clock estimations and EAAs,  DunedinPACe, DNAmTL, epiTOC, as well as biomarker predictor scores and cell type proportions described below between matched samples assessed on EPICv1 and EPICv2 in a cohort-specific manner. Effect sizes were measured by Cohen’s d. Technical replicates were removed prior to the paired t tests.
+
+```{r}
+# remove technical replicates before t-tests
+EPICv1_clocks_no_rep <-EPICv1_clocks %>% filter(!grepl("rep", Sample_Name, ignore.case = T))
+EPICv2_clocks_no_rep <-EPICv2_clocks %>% filter(!grepl("rep", Sample_Name, ignore.case = T))
+
+
+## example 1. DunedinPACE without EPIC version adjustment----
+t.test(EPICv1_clocks_no_rep$DunedinPACE, EPICv2_clocks_no_rep$DunedinPACE, 
+            paired = T, alternative = "two.sided")
+library(effsize)
+effsize::cohen.d(EPICv1_clocks_no_rep$DunedinPACE,
+                    EPICv2_clocks_no_rep$DunedinPACE, 
+                    paired=T) # cohens'D must be paired
+
+## example 2. DunedinPACE without EPIC version adjustment----
+t.test(EPICv1_clocks_no_rep$adj_DunedinPACE, EPICv2_clocks_no_rep$adj_DunedinPACE, 
+            paired = T, alternative = "two.sided")
+
+effsize::cohen.d(EPICv1_clocks_no_rep$adj_DunedinPACE,
+                    EPICv2_clocks_no_rep$adj_DunedinPACE, 
+                    paired=T)
+```
 
