@@ -66,24 +66,26 @@ opts_chunk$set(echo=T,
 
 # Introduction  
 This documentation contains the core analysis script for the manuscript:   
-"Discrepancies in readouts between Infinium MethylationEPIC v2.0 and v1.0 reflected in DNA methylation-based tools: implications and considerations for human population epigenetic studies"
+"Accounting for differences between Infinium MethylationEPIC v2 and v1 in DNA methylation-based tools "
 
 Preprint is available at 
 https://www.biorxiv.org/content/10.1101/2024.07.02.600461v2
 
-
+*Please note that the example data only consisted for a small subset of probes and samples. The full dataset will be available for public access soon. 
 
 ```{r}
-# save(EPICv1_beta_matrix,EPICv2_beta_matrix,EPICv1_clocks, EPICv2_clocks,SampleInfo, sample_correlation, file = "example_data.Rdata")
+
+
+# save(EPICv1_beta_matrix,EPICv2_beta_matrix,EPICv1_clocks, EPICv2_clocks,SampleInfo,file = "example_data.Rdata")
 
 load( "example_data.Rdata")
 head(EPICv1_beta_matrix)
 head(EPICv2_beta_matrix) # with replicate probes collapsed, and probe names are ILLUMINA NAME, same as in EPICv1
+# rownames(SampleInfo)
 
 head(EPICv1_clocks)
 head(EPICv2_clocks)
 head(SampleInfo)
-sample_correlation[1:5, 1:5]
 ```
 
 
@@ -91,15 +93,90 @@ sample_correlation[1:5, 1:5]
 library(dplyr)
 ```
 
+## Step 1.calculate Sample-to-sample correlations (array-level)
+### option 1: Sample-to-sample **Pearson correlation** (array-level)
 
-# array-level Spearman correlation
+calculate Pearson correlation among the 721,378 common probes between EPICv1 and v2
 
-calculate array level spearman correlation among the common probes between EPICv1 and v2
 ```{r}
 identical(rownames(EPICv1_beta_matrix), rownames(EPICv2_beta_matrix)) # must be T
 betas <- cbind(EPICv1_beta_matrix, EPICv2_beta_matrix)
-colnames(betas) <- c(paste0(colnames(EPICv1_beta_matrix), "_EPICv1"),paste0(colnames(EPICv2_beta_matrix), "_EPICv2")) 
-cor_samples <- cor(betas, use = 'pairwise.complete.obs',method = "spearman" )
+# colnames(betas) <- c(paste0(colnames(EPICv1_beta_matrix), "_EPICv1"),paste0(colnames(EPICv2_beta_matrix), "_EPICv2")) 
+sample_correlation_pearson <- cor(betas, use = 'pairwise.complete.obs',method = "pearson" )
+```
+
+### option 2: Sample-to-sample **Spearman correlation** (array-level)
+
+calculate Spearman correlation among the 721,378 common probes between EPICv1 and v2
+
+```{r}
+identical(rownames(EPICv1_beta_matrix), rownames(EPICv2_beta_matrix)) # must be T
+betas <- cbind(EPICv1_beta_matrix, EPICv2_beta_matrix)
+
+
+sample_correlation_spearman <- cor(betas, use = 'pairwise.complete.obs',method = "spearman" )
+```
+
+## Step 2. hierachical clustering and plots
+
+
+### option 1. using Pearson correlation as input
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+
+color_pDat <- SampleInfo %>% select(Version,Sex) %>% as.data.frame()
+rownames(color_pDat) <- SampleInfo$Sample_Name 
+
+identical(rownames(color_pDat), colnames(sample_correlation_pearson)) # must match
+
+str(color_pDat)
+# Specify colors
+ann_colors = list(Sex =c(F="#C0C0C0", M ="#696969"),
+    Version = c(EPICv1 = "#56BEAC", EPICv2 = "#5E405E"))
+
+
+## heatmap for Pearson correlation + clustering
+i <- which(sample_correlation_pearson == 1)
+sample_correlation_pearson[i] <- NA
+
+pheatmap(sample_correlation_pearson, cluster_rows=T, cluster_cols=T,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean", clustering_method = "complete",
+         annotation_col = color_pDat,
+         annotation_colors = ann_colors,
+         show_rownames = F, show_colnames = F,border_color = NA,
+         main = '')
+```
+
+
+### option 2. using Spearman correlation as input
+```{r}
+library(pheatmap)
+library(RColorBrewer)
+
+color_pDat <- SampleInfo %>% select(Version,Sex) %>% as.data.frame()
+rownames(color_pDat) <- SampleInfo$Sample_Name 
+
+identical(rownames(color_pDat), colnames(sample_correlation_spearman)) # must match
+
+str(color_pDat)
+# Specify colors
+ann_colors = list(Sex =c(F="#C0C0C0", M ="#696969"),
+    Version = c(EPICv1 = "#56BEAC", EPICv2 = "#5E405E"))
+
+
+## heatmap for Pearson correlation + clustering
+i <- which(sample_correlation_spearman == 1)
+sample_correlation_pearson[i] <- NA
+
+pheatmap(sample_correlation_spearman, cluster_rows=T, cluster_cols=T,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean", clustering_method = "complete",
+         annotation_col = color_pDat,
+         annotation_colors = ann_colors,
+         show_rownames = F, show_colnames = F,border_color = NA,
+         main = '')
 ```
 
 
@@ -134,45 +211,24 @@ library(psych)
 
 
 # use one of the two pairs of technical replicate
-tech_rep <- c("Sample_1", "Sample_1_rep")
+tech_rep_v1 <- c("12294-V_v1", "12294-V_rep_v1")
 
 ## within EPICv1 technical replicate ICCs
-input_data_EPICv1 <- data.frame(v= EPICv1_beta_matrix[, tech_rep[1]],v_rep= EPICv1_beta_matrix[,tech_rep[2]])
+input_data_EPICv1 <- data.frame(v= EPICv1_beta_matrix[, tech_rep_v1[1]],v_rep= EPICv1_beta_matrix[,tech_rep_v1[2]])
 within_EPICv1_tech_rep_ICC <- psych::ICC(input_data_EPICv1) #use ICC2
 
 ## within EPICv2 technical replicate ICCs
-input_data_EPICv2 <- data.frame(v= EPICv2_beta_matrix[, tech_rep[1]],v_rep= EPICv2_beta_matrix[,tech_rep[2]])
+tech_rep_v2 <- c("12294-V_v2", "12294-V_rep_v2")
+input_data_EPICv2 <- data.frame(v= EPICv2_beta_matrix[, tech_rep_v2[1]],v_rep= EPICv2_beta_matrix[,tech_rep_v2[2]])
 within_EPICv2_tech_rep_ICC <- psych::ICC(input_data_EPICv2) #use ICC2
 
 ## between EPICv1 and EPICv2 technical replicate ICCs
-input_data <- data.frame(v1= EPICv1_beta_matrix[, tech_rep] %>% rowMeans(),v2= EPICv2_beta_matrix[,tech_rep]%>% rowMeans())
+input_data <- data.frame(v1= EPICv1_beta_matrix[, tech_rep_v1] %>% rowMeans(),v2= EPICv2_beta_matrix[,tech_rep_v2]%>% rowMeans())
 between_version_tech_rep_ICC <- psych::ICC(input_data) #use ICC2
 ```
 
 
-# hierachical clustering and plots
 
-```{r}
-library(pheatmap)
-library(RColorBrewer)
-
-color_pDat <- SampleInfo %>% select(Version, Sex)
-rownames(SampleInfo) <- SampleInfo$Sample_Name
-rownames(color_pDat) <- SampleInfo$Sample_Name
-str(color_pDat)
-# Specify colors
-ann_colors = list(Sex =c(F="#C0C0C0", M ="#696969"),
-    Version = c(EPICv1 = "#56BEAC", EPICv2 = "#5E405E"))
-
-
-pheatmap(sample_correlation , cluster_rows=T, cluster_cols=T,
-         clustering_distance_rows = "euclidean",
-         clustering_distance_cols = "euclidean", clustering_method = "complete",
-         annotation_col = color_pDat,
-         annotation_colors = ann_colors,
-         show_rownames = F, show_colnames = F,border_color = NA,
-         main = '')
-```
 
 
 # Epigenetic age acceleration (EAA) calcualtion
